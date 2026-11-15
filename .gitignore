@@ -1,0 +1,18 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.idea/
+.vscode/
+*.log
+
+# runtime data
+data/industry.db
+data/industry.db-*
+data/tdx_files/**
+!data/tdx_files/.gitkeep
+!data/tdx_files/hq_cache/.gitkeep
+
+config.local.json
