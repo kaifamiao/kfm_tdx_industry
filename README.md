@@ -306,6 +306,8 @@ python run.py
 | `POST` | `/api/sync/all` | 双轨同步 |
 | `GET` | `/api/stats` | 统计 |
 | `GET` | `/api/symbol/{symbol}` | 单股（如 `sz000001` / `600519.SH`） |
+| `GET` | `/api/symbol/{symbol}/industry-history` | 行业归属历史（申万变动段，需先同步） |
+| `POST` | `/api/sync/industry-history` | 同步申万公开 xls → `symbol_industry_hist` |
 | `GET` | `/api/industries` | 行业字典 |
 | `GET` | `/api/blocks` | 板块列表 |
 | `GET` | `/api/blocks/{kind}/{code}/members` | 成分 |

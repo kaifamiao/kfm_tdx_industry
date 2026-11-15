@@ -58,6 +58,51 @@ def symbol_industry(symbol: str, source: str | None = None):
     return {"market": market, "code": code, "items": items, "names": names}
 
 
+@router.get("/symbol/{symbol}/industry-history", summary="股票行业归属历史")
+def symbol_industry_history(
+    symbol: str,
+    source: str | None = None,
+    system: str | None = "sw",
+):
+    """返回个股行业归属变动历史（默认申万 sw_hist）。
+
+    字段：industry_code / industry_name / start_date / end_date（空表示至今）。
+    """
+    market, code = parse_symbol(symbol)
+    where = ["market=?", "code=?"]
+    params: list = [market, code]
+    if source:
+        where.append("source=?")
+        params.append(source)
+    if system:
+        where.append("system=?")
+        params.append(system)
+    cond = " AND ".join(where)
+    with db.session() as conn:
+        try:
+            rows = conn.execute(
+                f"""
+                SELECT market, code, source, system, industry_code, industry_name,
+                       start_date, end_date, update_time, synced_at
+                FROM symbol_industry_hist
+                WHERE {cond}
+                ORDER BY start_date
+                """,
+                params,
+            ).fetchall()
+        except Exception as e:
+            raise HTTPException(500, f"历史表不可用，请先同步行业历史: {e}") from e
+    items = [dict(r) for r in rows]
+    return {
+        "market": market,
+        "code": code,
+        "source": source,
+        "system": system,
+        "count": len(items),
+        "items": items,
+    }
+
+
 @router.get("/industries")
 def industries(system: str | None = None, source: str | None = None,
                page: int = 1, size: int = Query(50, le=500)):

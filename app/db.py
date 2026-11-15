@@ -57,6 +57,22 @@ CREATE TABLE IF NOT EXISTS sync_log (
     message TEXT,
     stats_json TEXT
 );
+
+CREATE TABLE IF NOT EXISTS symbol_industry_hist (
+    market TEXT NOT NULL,
+    code TEXT NOT NULL,
+    source TEXT NOT NULL,
+    system TEXT NOT NULL,
+    industry_code TEXT NOT NULL,
+    industry_name TEXT,
+    start_date TEXT NOT NULL,
+    end_date TEXT,
+    update_time TEXT,
+    synced_at TEXT,
+    PRIMARY KEY (market, code, source, system, start_date)
+);
+CREATE INDEX IF NOT EXISTS idx_sym_ind_hist_code
+    ON symbol_industry_hist (market, code, start_date);
 """
 
 
@@ -99,10 +115,16 @@ def stats() -> dict:
         last = conn.execute(
             "SELECT track, started_at, finished_at, ok, message FROM sync_log ORDER BY id DESC LIMIT 1"
         ).fetchone()
+        hist = 0
+        try:
+            hist = count("symbol_industry_hist")
+        except Exception:
+            hist = 0
         return {
             "db_path": str(db_path()),
             "industry": count("industry"),
             "symbol_industry": count("symbol_industry"),
+            "symbol_industry_hist": hist,
             "block": count("block"),
             "block_member": count("block_member"),
             "sync_log": count("sync_log"),

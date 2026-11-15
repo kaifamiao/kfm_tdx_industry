@@ -99,6 +99,7 @@
           <button type="button" class="secondary" id="btnSyncTs">同步·Tushare</button>
           <button type="button" class="secondary" id="btnSyncNet">同步·网络</button>
           <button type="button" class="secondary" id="btnSyncMr">同步·麦蕊</button>
+          <button type="button" class="secondary" id="btnSyncHist">同步·行业历史</button>
           <button type="button" id="btnSyncAll">同步·全部</button>
         </div>
       </div>
@@ -123,6 +124,14 @@
         <table>
           <thead><tr><th>市场</th><th>代码</th><th>来源</th><th>通达信行业</th><th>申万</th><th>东财</th><th>更新</th></tr></thead>
           <tbody id="symBody"></tbody>
+        </table>
+      </div>
+      <h3 style="margin:18px 0 8px;font-size:1rem">行业归属历史 <span class="pill">申万</span></h3>
+      <div class="msg" id="histMsg"></div>
+      <div style="overflow:auto;max-height:280px">
+        <table>
+          <thead><tr><th>开始</th><th>结束</th><th>行业代码</th><th>行业名称</th><th>来源</th></tr></thead>
+          <tbody id="histBody"></tbody>
         </table>
       </div>
     </div>
@@ -246,6 +255,7 @@
     $('btnSyncTs').onclick = () => runSync('/api/sync/tushare', 'Tushare 同步中');
     $('btnSyncNet').onclick = () => runSync('/api/sync/network?include_concept=true&include_sw=true&include_region=true', '网络同步中（新浪+腾讯，可能需数分钟）');
     $('btnSyncMr').onclick = () => runSync('/api/sync/mairui?include_concept=true&include_sw=true&include_region=true', '麦蕊同步中（耗额度，可能需数分钟）');
+    $('btnSyncHist').onclick = () => runSync('/api/sync/industry-history', '申万行业历史同步中');
     $('btnSyncAll').onclick = () => runSync('/api/sync/all', '全部同步中');
 
     $('btnSym').onclick = async () => {
@@ -277,11 +287,32 @@
         })();
         $('symMsg').className = 'msg ok';
         $('symMsg').textContent = `${r.market}${r.code} · ${r.items?.length || 0} 条`;
+        await loadHist(sym);
       } catch (e) {
         $('symMsg').className = 'msg err';
         $('symMsg').textContent = e.message;
       }
     };
+
+    async function loadHist(sym) {
+      $('histMsg').textContent = '加载历史…';
+      try {
+        const h = await api(`/api/symbol/${encodeURIComponent(sym)}/industry-history?system=sw`);
+        $('histBody').innerHTML = (h.items || []).map((it) => `<tr>
+          <td class="mono">${it.start_date || '-'}</td>
+          <td class="mono">${it.end_date || '至今'}</td>
+          <td class="mono">${it.industry_code || '-'}</td>
+          <td>${it.industry_name || '-'}</td>
+          <td>${it.source || '-'}</td>
+        </tr>`).join('') || '<tr><td colspan="5">无历史，请先点「同步·行业历史」</td></tr>';
+        $('histMsg').className = 'msg ok';
+        $('histMsg').textContent = `${h.count || 0} 段归属`;
+      } catch (e) {
+        $('histMsg').className = 'msg err';
+        $('histMsg').textContent = e.message;
+        $('histBody').innerHTML = '<tr><td colspan="5">无历史数据</td></tr>';
+      }
+    }
 
     let indCache = [];
     $('btnInd').onclick = async () => {

@@ -171,6 +171,24 @@ def sync_tushare():
     return {"ok": True, "message": msg, "stats": stats, "db": db.stats()}
 
 
+@router.post("/sync/industry-history", summary="同步申万行业归属历史")
+def sync_industry_history():
+    """下载申万公开 xls，写入 symbol_industry_hist（source=sw_hist）。"""
+    from ..sources import sync_sw_industry_history
+
+    try:
+        stats = sync_sw_industry_history()
+    except Exception as e:
+        _log("sw_hist", False, str(e))
+        raise HTTPException(500, f"行业历史同步失败: {e}") from e
+    msg = (
+        f"申万行业历史同步完成：{stats.get('hist_rows', 0)} 条"
+        f" / {stats.get('symbols', 0)} 只股票"
+    )
+    _log("sw_hist", True, msg, stats)
+    return {"ok": True, "message": msg, "stats": stats, "db": db.stats()}
+
+
 @router.post("/sync/mairui")
 def sync_mairui(
     include_concept: bool = True,
