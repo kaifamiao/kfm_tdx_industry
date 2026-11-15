@@ -227,24 +227,56 @@ def sync_mairui(
     return {"ok": True, "message": msg, "stats": stats, "db": db.stats()}
 
 
+def _wrap_step(fn):
+    """把 HTTPException 收成 dict，供后台任务使用。"""
+
+    def _inner():
+        try:
+            return fn()
+        except HTTPException as e:
+            return {"ok": False, "detail": e.detail}
+
+    return _inner
+
+
 @router.post("/sync/all")
 def sync_all():
-    results = {}
-    for key, fn in (
-        ("tdx", sync_tdx),
-        ("tushare", sync_tushare),
-        ("network", sync_network),
-        ("mairui", sync_mairui),
-    ):
-        try:
-            results[key] = fn()
-        except HTTPException as e:
-            results[key] = {"ok": False, "detail": e.detail}
-    ok = any(isinstance(v, dict) and v.get("ok") for v in results.values())
-    _log(
-        "all",
-        ok,
-        "multi-track sync attempted",
-        {k: (v.get("ok") if isinstance(v, dict) else False) for k, v in results.items()},
-    )
-    return {"ok": ok, "results": results}
+    """启动后台全量同步，立即返回 job；用 /api/sync/jobs/{id} 查进度。
+
+    服务端在独立线程执行，浏览器刷新不会中断任务。
+    """
+    from .. import sync_jobs
+
+    steps = [
+        ("tdx", "通达信", _wrap_step(sync_tdx)),
+        ("tushare", "Tushare", _wrap_step(sync_tushare)),
+        ("network", "网络", _wrap_step(sync_network)),
+        ("mairui", "麦蕊", _wrap_step(sync_mairui)),
+        ("sw_hist", "行业历史", _wrap_step(sync_industry_history)),
+    ]
+    job = sync_jobs.start_sync_all_job(steps)
+    return {
+        "ok": True,
+        "async": True,
+        "job_id": job["id"],
+        "job": job,
+        "message": "全部同步已在后台启动，刷新页面可继续查看进度",
+    }
+
+
+@router.get("/sync/jobs/active")
+def sync_job_active():
+    from .. import sync_jobs
+
+    job = sync_jobs.get_active_job()
+    return {"job": job}
+
+
+@router.get("/sync/jobs/{job_id}")
+def sync_job_status(job_id: str):
+    from .. import sync_jobs
+
+    job = sync_jobs.get_job(job_id)
+    if not job:
+        raise HTTPException(404, f"任务不存在: {job_id}")
+    return job

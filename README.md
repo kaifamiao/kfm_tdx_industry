@@ -2,9 +2,11 @@
 
 A 股 **行业 · 概念 · 风格 · 地区** 板块信息独立服务。
 
-**双轨获取**（通达信文件 + 网络）→ **SQLite** 缓存 → **FastAPI** 查询。默认端口 **13520**。
+**多源同步**（通达信文件 / Tushare / 新浪+腾讯网络 / 麦蕊 / 申万历史）→ **SQLite** → **FastAPI**。默认端口 **13520**。
 
 更细的通达信文件字段说明见 [`行业板块获取方案.md`](./行业板块获取方案.md)。本服务与行情主仓 `kfm_tdx_in_db_v15` 解耦，不依赖其 PostgreSQL。
+
+> **两个库文件**：`data/industry.db` 是运行库（本地读写、不同步进 Git）；`data/industry.seed.db` 是仓库快照（开箱用）。不是两套并行业务库，详见 [§5.2.1](#521-两个-sqlite-文件)。
 
 ---
 
@@ -59,25 +61,24 @@ Tushare 密钥写在 **`config.local.json`**（已 gitignore，勿提交），�
                                          (incon / tdxhy / tdxzs / block_*)
                                                   │
 ┌──────────────┐     ┌──────────────┐     ┌───────▼────────┐     ┌────────────┐
-│ 网络数据源    │────►│ sources/     │────►│  SQLite        │◄────│ FastAPI    │
-│ (AKShare 等) │     │ network.py   │     │  industry.db   │     │ :13520     │
-└──────────────┘     │ tdx_local.py │     └────────────────┘     │ /api/...   │
-                     └──────────────┘              ▲             └─────┬──────┘
-                            parsers/               │                   │
-                            (GBK / 二进制)          │                   ▼
-                                                   │            主仓 / 脚本 / 浏览器
-                                                   │            (HTTP JSON)
+│ Tushare/网络  │────►│ sources/     │────►│  SQLite        │◄────│ FastAPI    │
+│ 麦蕊/申万历史 │     │ + parsers/   │     │  industry.db   │     │ :13520     │
+└──────────────┘     └──────────────┘     │  (+ seed 快照) │     │ /api/...   │
+                                          └────────────────┘     └─────┬──────┘
+                                                                       ▼
+                                                                浏览器 / 主仓 / 脚本
 ```
 
 | 层级 | 职责 |
 |------|------|
-| **sources** | 双轨适配：读 `tdx_files` 或拉网络，统一成内部 DTO |
+| **sources** | 多源适配：通达信归档、Tushare、新浪+腾讯、麦蕊、申万历史 |
 | **parsers** | 通达信文本 / 二进制格式解析（GBK） |
-| **db** | SQLite 建表、upsert、查询 |
-| **routes** | REST：同步、统计、单股、板块、成分、文件导入 |
-| **data/** | 库文件 + 通达信归档目录（运行时数据，与代码分离） |
+| **db** | SQLite 建表、迁移、种子库复制、查询 |
+| **sync_jobs** | 全量同步后台任务与进度（刷新不中断） |
+| **routes** | REST：同步、统计、单股、历史、质检、板块 |
+| **data/** | 运行库、种子库、通达信归档、参考字典 |
 
-技术栈：Python 3.10+ · FastAPI · Uvicorn · SQLite3 · AKShare / pandas / requests。
+技术栈：Python 3.10+ · FastAPI · Uvicorn · SQLite3 · pandas / requests / xlrd / openpyxl · Tushare（可选）。
 
 ---
 
@@ -86,16 +87,13 @@ Tushare 密钥写在 **`config.local.json`**（已 gitignore，勿提交），�
 | 功能 | 说明 |
 |------|------|
 | 通达信文件归档 | 从本机安装目录拷贝到 `data/tdx_files/`，或手工放入 |
-| 通达信同步 | 解析归档文件 → 行业字典、每股归属、板块与成分 |
-| 网络同步 | 拉取申万 / 东财行业与概念等 → 分源入库 |
-| 双轨全量同步 | 依次执行两轨（失败一侧记日志，不阻断另一侧策略可配） |
-| 单股查询 | 返回各 `source` 下的行业码与名称 |
-| 行业 / 板块浏览 | 字典列表、按 kind 筛选、成分股 |
-| 统计 | 覆盖率、最近同步时间、各源条数 |
-| 健康检查 | 进程 / 库文件是否可用 |
-| OpenAPI | `/docs` 交互文档 |
-
-实施优先级建议：P0 每股行业（文件轨）→ P1 行业成分反查 → P2 概念/风格 → 网络轨并行补齐。
+| 通达信 / Tushare / 网络 / 麦蕊同步 | 分源入库，互不覆盖 |
+| 申万行业归属历史 | 变动段 + `sw2014`/`sw2021` 版本化字典 |
+| 全量同步（带进度） | 后台任务；页面进度条；刷新可继续查看，服务端不中断 |
+| 历史质量 / 覆盖缺口 | 重叠、缺口、字典关联率；缺历史证券分桶（不回填） |
+| 单股 / 行业 / 板块查询 | HTML UI + REST |
+| 开箱种子库 | 无运行库时自动从 `industry.seed.db` 复制 |
+| OpenAPI | `/docs` |
 
 ---
 
@@ -167,76 +165,53 @@ data/tdx_files/
 | `tdxzs.cfg` / `tdxzs3.cfg` | 同名放入 `hq_cache/` |
 | `block_gn/fg/zs.dat` | 同名放入 `hq_cache/` |
 
-### 5.2 SQLite 表（`data/industry.db`）
+### 5.2 SQLite 表（运行库 `data/industry.db`）
+
+#### 5.2.1 两个 SQLite 文件
+
+| 文件 | 角色 | 是否进 Git | 说明 |
+|------|------|------------|------|
+| `data/industry.db` | **运行库** | 否 | 服务实际读写；同步、查询都打这里 |
+| `data/industry.seed.db` | **种子快照** | 是 | 克隆后若无运行库，启动时自动复制为 `industry.db` |
+
+日常开发/生产只需关心运行库；更新仓库快照时，把当前运行库拷成 seed 再提交即可。
+
+#### 5.2.2 主要表
 
 ```text
-industry
-  system       TEXT     -- tdx / sw / csrc / em …
-  code         TEXT     -- 如 T010101、BKxxxx
-  name         TEXT
-  parent_code  TEXT
-  level        INTEGER
-  source       TEXT     -- tdx_file / network
-  PRIMARY KEY (system, code, source)
-
-symbol_industry
-  market       TEXT     -- sh / sz / bj
-  code         TEXT     -- 6 位代码
-  source       TEXT     -- tdx_file / network
-  tdx_code     TEXT     -- 可空（网络轨可能无）
-  sw_code      TEXT
-  em_industry  TEXT     -- 东财等，可空
-  extra_json   TEXT     -- 扩展
-  updated_at   TEXT
-  PRIMARY KEY (market, code, source)
-
-block
-  kind         TEXT     -- hy / gn / fg / dq / zs …
-  code         TEXT
-  name         TEXT
-  index_code   TEXT     -- 如 880301
-  source       TEXT
-  PRIMARY KEY (kind, code, source)
-
-block_member
-  kind         TEXT
-  block_code   TEXT
-  market       TEXT
-  code         TEXT
-  source       TEXT
-  PRIMARY KEY (kind, block_code, market, code, source)
-
-sync_log
-  id           INTEGER PRIMARY KEY
-  track        TEXT     -- tdx / network / all
-  started_at   TEXT
-  finished_at  TEXT
-  ok           INTEGER
-  message      TEXT
-  stats_json   TEXT
+industry / industry_dict     -- 行业字典；dict 带 version（sw2014 / sw2021）互不覆盖
+symbol_industry              -- 每股当前归属（按 source 分源）
+symbol_industry_hist         -- 申万归属历史段（taxonomy_version、生效日、发布日、同步日）
+block / block_member         -- 板块与成分
+sync_log                     -- 同步日志
 ```
 
-说明：主键带 `source`，保证双轨并存；查询时可 `source=tdx_file` 优先对齐通达信软件。
+日期语义（历史表，防回测未来函数）：
+
+| 字段 | 含义 |
+|------|------|
+| `start_date` / `end_date` | 归属**生效**区间（空 end = 至今） |
+| `update_time`（API 别名 `published_at`） | 数据源**发布/修订**可知日 |
+| `synced_at` | 本系统入库时间（不可作 as-of） |
+
+主键带 `source`（及字典的 `version`），保证多源/多版并存。
 
 ### 5.3 代码与配置布局
 
 ```text
 kfm_tdx_industry/
 ├── README.md
-├── 行业板块获取方案.md
 ├── requirements.txt
 ├── run.py / run.bat
-├── config.json                 # 可选
+├── config.json / config.local.json   # local 含密钥，勿提交
 ├── app/
-│   ├── main.py
-│   ├── config.py
-│   ├── db.py
-│   ├── parsers/
-│   ├── sources/
-│   └── routes/
+│   ├── main.py / db.py / sync_jobs.py
+│   ├── parsers/  sources/  routes/  qa/
+│   └── static/index.html             # 查询 UI（含同步进度条）
 └── data/
-    ├── industry.seed.db        # 入库快照（开箱可用）
-    ├── industry.db             # 运行库（gitignore，缺省时由 seed 复制）
+    ├── industry.seed.db              # Git 快照
+    ├── industry.db                   # 运行库（gitignore）
+    ├── ref/sw2014.csv                # 申万 2014 参考字典
     └── tdx_files/
 ```
 
@@ -296,36 +271,38 @@ python run.py
 | http://127.0.0.1:13520/docs | Swagger |
 | http://127.0.0.1:13520/redoc | ReDoc |
 
-### 6.5 API 一览（规划）
+### 6.5 API 一览
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | `GET` | `/api/health` | 健康检查 |
-| `POST` | `/api/tdx/import` | 本机路径 → 拷贝到 `tdx_files` |
-| `POST` | `/api/sync/tdx` | 文件轨同步 |
-| `POST` | `/api/sync/network` | 网络轨同步 |
-| `POST` | `/api/sync/all` | 双轨同步 |
 | `GET` | `/api/stats` | 统计 |
-| `GET` | `/api/symbol/{symbol}` | 单股（如 `sz000001` / `600519.SH`） |
-| `GET` | `/api/symbol/{symbol}/industry-history` | 行业归属历史（含 taxonomy_version / 日期语义） |
-| `GET` | `/api/industry-dict` | 版本化申万字典（`sw2014` / `sw2021`，互不覆盖） |
-| `GET` | `/api/industry-history/quality` | 历史质量检查（重叠/缺口/字典关联率） |
-| `GET` | `/api/industry-history/coverage` | 缺历史证券分桶（不回填当前行业） |
-| `POST` | `/api/sync/industry-history` | 同步申万历史 + 双版字典 |
-
-**日期语义（回测防未来函数）**：`start_date`/`end_date` = 归属生效区间；`update_time`/`published_at` = 数据源发布可知日；`synced_at` = 系统入库时间（不可作 as-of）。
-| `GET` | `/api/industries` | 行业字典 |
+| `POST` | `/api/tdx/import` | 本机路径 → 拷贝到 `tdx_files` |
+| `POST` | `/api/sync/tdx` | 通达信同步 |
+| `POST` | `/api/sync/tushare` | Tushare 同步 |
+| `POST` | `/api/sync/network` | 网络同步（新浪+腾讯） |
+| `POST` | `/api/sync/mairui` | 麦蕊同步 |
+| `POST` | `/api/sync/industry-history` | 申万历史 + 双版字典 |
+| `POST` | `/api/sync/all` | 后台全量同步（立即返回 `job_id`，刷新不中断） |
+| `GET` | `/api/sync/jobs/active` | 当前/最近同步任务 |
+| `GET` | `/api/sync/jobs/{id}` | 同步任务进度 |
+| `GET` | `/api/symbol/{symbol}` | 单股当前归属 |
+| `GET` | `/api/symbol/{symbol}/industry-history` | 行业归属历史 |
+| `GET` | `/api/industry-dict` | 版本化申万字典 |
+| `GET` | `/api/industry-history/quality` | 历史质量检查 |
+| `GET` | `/api/industry-history/coverage` | 缺历史证券分桶 |
+| `GET` | `/api/industries` | 行业字典列表 |
 | `GET` | `/api/blocks` | 板块列表 |
 | `GET` | `/api/blocks/{kind}/{code}/members` | 成分 |
 
-以实际 `/docs` 为准。
+以实际 `/docs` 为准。页面「同步·全部」带进度条，刷新后会自动恢复未完成任务的进度展示。
 
 ### 6.6 与主仓协作
 
 | 项目 | 端口 | 存储 | 职责 |
 |------|------|------|------|
 | `kfm_tdx_in_db_v15` | 18888 | PostgreSQL | 日线 / 财务 / 评分等 |
-| **本项目** | **13520** | **SQLite** | 行业板块双轨 |
+| **本项目** | **13520** | **SQLite** | 行业板块多源 + 历史 |
 
 主仓可通过 HTTP 拉取本服务补全行业列，或定期导出再导入主库。
 
@@ -356,13 +333,16 @@ A: 正常。体系不同。查询时带 `source`，或业务层指定优先 `tdx
 A: 不同版本文件名可能不同，有哪个拷哪个；解析器应兼容。
 
 **Q: 网络同步失败？**  
-A: 检查外网、AKShare 版本、目标站点是否变更。文件轨可离线独立使用。
+A: 检查外网与新浪/腾讯可达性；不依赖 AKShare。文件轨可离线独立使用。
 
 **Q: 编码乱码？**  
 A: 通达信文本多为 **GBK/GB2312**，须按该编码读取。
 
+**Q: 为什么有两个 `.db`？都要吗？**  
+A: 要，但职责不同。`industry.db` = 运行库（本地、gitignore）；`industry.seed.db` = Git 快照，仅用于开箱复制。不是两套同时读写的业务库。
+
 **Q: 大文件要不要进 Git？**  
-A: 运行库 `data/industry.db`、通达信归档 `data/tdx_files/**` 不入库；仓库提供 `data/industry.seed.db` 快照，首次启动会自动复制为运行库。
+A: 运行库与 `data/tdx_files/**`、`data/cache/` 不入库；seed 与 `data/ref/sw2014.csv` 可入库。
 
 **Q: 和「上市板块」有什么区别？**  
 A: 主板/创业板/科创板是交易板块；本项目做的是行业与概念分类，语义不同，勿混用字段。

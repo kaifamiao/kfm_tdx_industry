@@ -78,6 +78,55 @@
     }
     a { color: var(--accent); }
     .mono { font-family: ui-monospace, Consolas, monospace; }
+    .progress-wrap {
+      display: none;
+      margin-top: 12px;
+      padding: 12px;
+      background: #f8fafc;
+      border-radius: 10px;
+      border: 1px solid var(--line);
+    }
+    .progress-wrap.show { display: block; }
+    .progress-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: baseline;
+      margin-bottom: 8px;
+      font-size: .9rem;
+    }
+    .progress-head .pct { font-weight: 700; color: #115e59; }
+    .progress-bar {
+      height: 10px;
+      background: #e5e7eb;
+      border-radius: 999px;
+      overflow: hidden;
+    }
+    .progress-bar > i {
+      display: block;
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #0f766e, #2dd4bf);
+      border-radius: 999px;
+      transition: width .35s ease;
+    }
+    .progress-steps {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 10px;
+    }
+    .progress-steps span {
+      font-size: .78rem;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: #fff;
+      border: 1px solid var(--line);
+      color: var(--muted);
+    }
+    .progress-steps span.run { border-color: #5eead4; color: #115e59; background: var(--accent-soft); }
+    .progress-steps span.ok { border-color: #86efac; color: #047857; background: #ecfdf5; }
+    .progress-steps span.err { border-color: #fca5a5; color: #b91c1c; background: #fef2f2; }
   </style>
 </head>
 <body>
@@ -104,6 +153,14 @@
         </div>
       </div>
       <div class="stats" id="stats" style="margin-top:14px"></div>
+      <div class="progress-wrap" id="syncProgress">
+        <div class="progress-head">
+          <span id="syncProgressLabel">同步进度</span>
+          <span class="pct mono" id="syncProgressPct">0%</span>
+        </div>
+        <div class="progress-bar"><i id="syncProgressBar"></i></div>
+        <div class="progress-steps" id="syncProgressSteps"></div>
+      </div>
       <div class="msg" id="actionMsg"></div>
     </div>
 
@@ -238,17 +295,137 @@
       }
     };
 
+    const SYNC_JOB_KEY = 'kfm_tdx_sync_job_id';
+    let syncBusy = false;
+    let syncPollTimer = null;
+
+    function setSyncBusy(on) {
+      syncBusy = !!on;
+      ['btnSyncTdx','btnSyncTs','btnSyncNet','btnSyncMr','btnSyncHist','btnSyncAll','btnImport'].forEach((id) => {
+        const el = $(id);
+        if (el) el.disabled = !!on;
+      });
+    }
+
+    function showProgress(job) {
+      const wrap = $('syncProgress');
+      wrap.classList.add('show');
+      const pct = Math.max(0, Math.min(100, job.percent || 0));
+      $('syncProgressBar').style.width = pct + '%';
+      $('syncProgressPct').textContent = pct + '%';
+      const label = job.current_label
+        ? `${job.message || '同步中'}（${job.done || 0}/${job.total || 0}）`
+        : (job.message || '同步进度');
+      $('syncProgressLabel').textContent = label;
+      const steps = job.steps || [];
+      $('syncProgressSteps').innerHTML = steps.map((s) => {
+        const cls = s.status === 'running' ? 'run' : (s.status === 'done' ? 'ok' : (s.status === 'error' ? 'err' : ''));
+        return `<span class="${cls}">${s.label}${s.status === 'error' ? '×' : (s.status === 'done' ? '✓' : '')}</span>`;
+      }).join('');
+    }
+
+    function hideProgressSoon(ms = 4000) {
+      setTimeout(() => {
+        if (!syncBusy) $('syncProgress').classList.remove('show');
+      }, ms);
+    }
+
+    async function pollSyncJob(jobId) {
+      if (syncPollTimer) {
+        clearInterval(syncPollTimer);
+        syncPollTimer = null;
+      }
+      setSyncBusy(true);
+      localStorage.setItem(SYNC_JOB_KEY, jobId);
+      const tick = async () => {
+        try {
+          const job = await api('/api/sync/jobs/' + encodeURIComponent(jobId));
+          showProgress(job);
+          $('actionMsg').className = 'msg';
+          $('actionMsg').textContent = job.message || '同步中…';
+          if (job.status === 'done' || job.status === 'error') {
+            clearInterval(syncPollTimer);
+            syncPollTimer = null;
+            setSyncBusy(false);
+            localStorage.removeItem(SYNC_JOB_KEY);
+            $('actionMsg').className = job.ok ? 'msg ok' : 'msg err';
+            const parts = (job.steps || []).map((s) => {
+              const mark = s.ok === false ? '失败' : (s.ok ? '成功' : s.status);
+              return `${s.label}:${mark}${s.message ? '(' + s.message + ')' : ''}`;
+            });
+            $('actionMsg').textContent = (job.message || '') + (parts.length ? '\n' + parts.join('\n') : '');
+            await refreshStats();
+            hideProgressSoon();
+          }
+        } catch (e) {
+          clearInterval(syncPollTimer);
+          syncPollTimer = null;
+          setSyncBusy(false);
+          $('actionMsg').className = 'msg err';
+          $('actionMsg').textContent = e.message;
+        }
+      };
+      await tick();
+      syncPollTimer = setInterval(tick, 1500);
+    }
+
+    async function resumeSyncIfAny() {
+      const saved = localStorage.getItem(SYNC_JOB_KEY);
+      try {
+        if (saved) {
+          const job = await api('/api/sync/jobs/' + encodeURIComponent(saved));
+          if (job.status === 'queued' || job.status === 'running') {
+            $('actionMsg').className = 'msg';
+            $('actionMsg').textContent = '检测到未完成的全部同步，继续显示进度…';
+            await pollSyncJob(saved);
+            return;
+          }
+          localStorage.removeItem(SYNC_JOB_KEY);
+        }
+        const act = await api('/api/sync/jobs/active');
+        if (act.job && (act.job.status === 'queued' || act.job.status === 'running')) {
+          await pollSyncJob(act.job.id);
+        }
+      } catch (_) {
+        localStorage.removeItem(SYNC_JOB_KEY);
+      }
+    }
+
+    window.addEventListener('beforeunload', (e) => {
+      if (!syncBusy) return;
+      e.preventDefault();
+      e.returnValue = '同步仍在后台进行，刷新不会中断服务端任务，但请确认已了解进度可恢复。';
+      return e.returnValue;
+    });
+
     async function runSync(path, label) {
+      if (syncBusy) {
+        $('actionMsg').className = 'msg err';
+        $('actionMsg').textContent = '已有同步任务进行中，请稍候';
+        return;
+      }
       $('actionMsg').className = 'msg';
       $('actionMsg').textContent = label + '…';
+      setSyncBusy(true);
+      showProgress({ percent: 8, message: label, done: 0, total: 1, steps: [{ label, status: 'running' }] });
       try {
         const r = await api(path, { method: 'POST' });
+        if (r.async && r.job_id) {
+          await pollSyncJob(r.job_id);
+          return;
+        }
+        showProgress({ percent: 100, message: r.message || '完成', done: 1, total: 1, steps: [{ label, status: 'done', ok: true }] });
         $('actionMsg').className = 'msg ok';
         $('actionMsg').textContent = r.message || JSON.stringify(r.results || r, null, 2);
         await refreshStats();
+        setSyncBusy(false);
+        hideProgressSoon();
       } catch (e) {
+        showProgress({ percent: 100, message: e.message, done: 1, total: 1, steps: [{ label, status: 'error', ok: false }] });
         $('actionMsg').className = 'msg err';
         $('actionMsg').textContent = e.message;
+        setSyncBusy(false);
+        hideProgressSoon();
       }
     }
     $('btnSyncTdx').onclick = () => runSync('/api/sync/tdx', '通达信同步中');
@@ -389,6 +566,7 @@
 
     $('symInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('btnSym').click(); });
     refreshStats().catch(() => {});
+    resumeSyncIfAny().catch(() => {});
   </script>
 </body>
 </html>
