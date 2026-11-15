@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>kfm_tdx_industry · 行业板块查询</title>
+  <style>
+    :root {
+      --bg: #f4f6f8;
+      --card: #fff;
+      --line: #e5e7eb;
+      --text: #111827;
+      --muted: #6b7280;
+      --accent: #0f766e;
+      --accent-soft: #ccfbf1;
+      --warn: #b45309;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: linear-gradient(180deg, #ecfeff 0%, var(--bg) 220px);
+      color: var(--text);
+    }
+    header {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 28px 20px 8px;
+    }
+    header h1 { margin: 0 0 6px; font-size: 1.6rem; letter-spacing: -0.02em; }
+    header p { margin: 0; color: var(--muted); }
+    main { max-width: 1100px; margin: 0 auto; padding: 16px 20px 48px; }
+    .row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 16px;
+      margin-top: 14px;
+      box-shadow: 0 1px 2px rgba(0,0,0,.04);
+    }
+    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+    .stat { background: #f8fafc; border-radius: 10px; padding: 12px; }
+    .stat b { display: block; font-size: 1.35rem; margin-top: 4px; }
+    .stat span { color: var(--muted); font-size: .85rem; }
+    input, select, button {
+      font: inherit;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      padding: 8px 12px;
+      background: #fff;
+    }
+    input { min-width: 180px; }
+    button {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+      cursor: pointer;
+    }
+    button.secondary { background: #fff; color: var(--text); }
+    button:disabled { opacity: .55; cursor: not-allowed; }
+    table { width: 100%; border-collapse: collapse; font-size: .92rem; }
+    th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; }
+    th { color: var(--muted); font-weight: 600; background: #fafafa; }
+    .tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+    .tabs button { background: #fff; color: var(--text); }
+    .tabs button.active { background: var(--accent-soft); border-color: #5eead4; color: #115e59; }
+    .msg { color: var(--muted); font-size: .9rem; margin-top: 8px; white-space: pre-wrap; }
+    .msg.err { color: #b91c1c; }
+    .msg.ok { color: #047857; }
+    .pill {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: #115e59;
+      font-size: .8rem;
+    }
+    a { color: var(--accent); }
+    .mono { font-family: ui-monospace, Consolas, monospace; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>行业板块查询</h1>
+    <p>kfm_tdx_industry · 通达信文件 / 网络双轨 · <a href="/docs">API</a></p>
+  </header>
+  <main>
+    <div class="card">
+      <div class="row" style="justify-content:space-between">
+        <div class="tabs">
+          <button type="button" class="active" data-tab="symbol">查个股</button>
+          <button type="button" data-tab="industry">行业字典</button>
+          <button type="button" data-tab="block">板块 / 成分</button>
+        </div>
+        <div class="row">
+          <button type="button" class="secondary" id="btnImport">拷贝通达信文件</button>
+          <button type="button" class="secondary" id="btnSyncTdx">同步·通达信</button>
+          <button type="button" class="secondary" id="btnSyncTs">同步·Tushare</button>
+          <button type="button" class="secondary" id="btnSyncNet">同步·网络</button>
+          <button type="button" class="secondary" id="btnSyncMr">同步·麦蕊</button>
+          <button type="button" id="btnSyncAll">同步·全部</button>
+        </div>
+      </div>
+      <div class="stats" id="stats" style="margin-top:14px"></div>
+      <div class="msg" id="actionMsg"></div>
+    </div>
+
+    <div class="card" id="panel-symbol">
+      <div class="row">
+        <input id="symInput" class="mono" placeholder="如 600519 / sh600519 / 000001.SZ" value="600519" />
+        <select id="symSource">
+          <option value="">全部来源</option>
+          <option value="tdx_file">tdx_file</option>
+          <option value="tushare">tushare</option>
+          <option value="network">network</option>
+          <option value="mairui">mairui</option>
+        </select>
+        <button type="button" id="btnSym">查询</button>
+      </div>
+      <div class="msg" id="symMsg"></div>
+      <div style="overflow:auto;margin-top:10px">
+        <table>
+          <thead><tr><th>市场</th><th>代码</th><th>来源</th><th>通达信行业</th><th>申万</th><th>东财</th><th>更新</th></tr></thead>
+          <tbody id="symBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card" id="panel-industry" hidden>
+      <div class="row">
+        <select id="indSystem">
+          <option value="">全部体系</option>
+          <option value="tdx">通达信 tdx</option>
+          <option value="sw">申万 sw</option>
+          <option value="csrc">证监会 csrc</option>
+        </select>
+        <select id="indSource">
+          <option value="">全部来源</option>
+          <option value="tdx_file">tdx_file</option>
+          <option value="tushare">tushare</option>
+          <option value="network">network</option>
+          <option value="mairui">mairui</option>
+        </select>
+        <input id="indQ" placeholder="过滤代码/名称" />
+        <button type="button" id="btnInd">查询</button>
+      </div>
+      <div class="msg" id="indMsg"></div>
+      <div style="overflow:auto;margin-top:10px;max-height:480px">
+        <table>
+          <thead><tr><th>体系</th><th>代码</th><th>名称</th><th>层级</th><th>父级</th><th>来源</th></tr></thead>
+          <tbody id="indBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card" id="panel-block" hidden>
+      <div class="row">
+        <select id="blkKind">
+          <option value="">全部类型</option>
+          <option value="hy">行业 hy</option>
+          <option value="gn">概念 gn</option>
+          <option value="fg">风格 fg</option>
+          <option value="dq">地区 dq</option>
+          <option value="sw">申万 sw</option>
+          <option value="zs">指数 zs</option>
+        </select>
+        <input id="blkQ" placeholder="过滤板块名/代码" />
+        <button type="button" id="btnBlk">查板块</button>
+      </div>
+      <div class="msg" id="blkMsg"></div>
+      <div style="overflow:auto;margin-top:10px;max-height:280px">
+        <table>
+          <thead><tr><th>类型</th><th>代码</th><th>名称</th><th>指数码</th><th>来源</th><th></th></tr></thead>
+          <tbody id="blkBody"></tbody>
+        </table>
+      </div>
+      <h3 style="margin:18px 0 8px;font-size:1rem">成分股 <span class="pill" id="memTitle">未选择</span></h3>
+      <div style="overflow:auto;max-height:320px">
+        <table>
+          <thead><tr><th>市场</th><th>代码</th><th>来源</th></tr></thead>
+          <tbody id="memBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const panels = { symbol: $('panel-symbol'), industry: $('panel-industry'), block: $('panel-block') };
+
+    document.querySelectorAll('.tabs button').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.tabs button').forEach((b) => b.classList.remove('active'));
+        btn.classList.add('active');
+        Object.entries(panels).forEach(([k, el]) => { el.hidden = k !== btn.dataset.tab; });
+      });
+    });
+
+    async function api(path, opts) {
+      const r = await fetch(path, opts);
+      const text = await r.text();
+      let data;
+      try { data = JSON.parse(text); } catch { data = { detail: text }; }
+      if (!r.ok) throw new Error(data.detail || data.message || r.statusText);
+      return data;
+    }
+
+    async function refreshStats() {
+      const s = await api('/api/stats');
+      $('stats').innerHTML = [
+        ['行业字典', s.industry],
+        ['个股归属', s.symbol_industry],
+        ['板块', s.block],
+        ['成分', s.block_member],
+      ].map(([k, v]) => `<div class="stat"><span>${k}</span><b>${v ?? 0}</b></div>`).join('');
+    }
+
+    $('btnImport').onclick = async () => {
+      $('actionMsg').className = 'msg';
+      $('actionMsg').textContent = '拷贝中…';
+      try {
+        const src = encodeURIComponent('D:\\\\new_tdx_mock');
+        const r = await api('/api/tdx/import?src=' + src, { method: 'POST' });
+        $('actionMsg').className = 'msg ok';
+        $('actionMsg').textContent = '已拷贝: ' + (r.copied || []).join(', ');
+      } catch (e) {
+        $('actionMsg').className = 'msg err';
+        $('actionMsg').textContent = e.message;
+      }
+    };
+
+    async function runSync(path, label) {
+      $('actionMsg').className = 'msg';
+      $('actionMsg').textContent = label + '…';
+      try {
+        const r = await api(path, { method: 'POST' });
+        $('actionMsg').className = 'msg ok';
+        $('actionMsg').textContent = r.message || JSON.stringify(r.results || r, null, 2);
+        await refreshStats();
+      } catch (e) {
+        $('actionMsg').className = 'msg err';
+        $('actionMsg').textContent = e.message;
+      }
+    }
+    $('btnSyncTdx').onclick = () => runSync('/api/sync/tdx', '通达信同步中');
+    $('btnSyncTs').onclick = () => runSync('/api/sync/tushare', 'Tushare 同步中');
+    $('btnSyncNet').onclick = () => runSync('/api/sync/network?include_concept=true&include_sw=true&include_region=true', '网络同步中（新浪+腾讯，可能需数分钟）');
+    $('btnSyncMr').onclick = () => runSync('/api/sync/mairui?include_concept=true&include_sw=true&include_region=true', '麦蕊同步中（耗额度，可能需数分钟）');
+    $('btnSyncAll').onclick = () => runSync('/api/sync/all', '全部同步中');
+
+    $('btnSym').onclick = async () => {
+      const sym = $('symInput').value.trim();
+      const source = $('symSource').value;
+      $('symMsg').textContent = '查询中…';
+      try {
+        const q = source ? `?source=${encodeURIComponent(source)}` : '';
+        const r = await api(`/api/symbol/${encodeURIComponent(sym)}${q}`);
+        const names = r.names || {};
+        $('symBody').innerHTML = (r.items || []).map((it) => {
+          const tdxName = names.tdx?.[it.tdx_code] || '';
+          const swName = names.sw?.[it.sw_code] || '';
+          return `<tr>
+            <td>${it.market}</td><td class="mono">${it.code}</td><td>${it.source}</td>
+            <td>${it.tdx_code || '-'} ${tdxName ? '(' + tdxName + ')' : ''}</td>
+            <td>${it.sw_code || '-'} ${swName ? '(' + swName + ')' : ''}</td>
+            <td>${it.em_industry || '-'}</td><td>${it.updated_at || '-'}</td>
+          </tr>`;
+        }).join('') || (() => {
+          const src = $('symSource').value;
+          const tip = {
+            tdx_file: '无数据：请先「拷贝通达信文件」再点「同步·通达信」',
+            tushare: '无数据：请先点「同步·Tushare」',
+            network: '无数据：请先点「同步·网络」（新浪+腾讯）',
+            mairui: '无数据：请先配置 mairui.licence 并点「同步·麦蕊」',
+          }[src] || '无数据：请先按来源执行对应同步';
+          return `<tr><td colspan="7">${tip}</td></tr>`;
+        })();
+        $('symMsg').className = 'msg ok';
+        $('symMsg').textContent = `${r.market}${r.code} · ${r.items?.length || 0} 条`;
+      } catch (e) {
+        $('symMsg').className = 'msg err';
+        $('symMsg').textContent = e.message;
+      }
+    };
+
+    let indCache = [];
+    $('btnInd').onclick = async () => {
+      $('indMsg').textContent = '查询中…';
+      try {
+        const system = $('indSystem').value;
+        const source = $('indSource').value;
+        const qs = new URLSearchParams({ page: '1', size: '500' });
+        if (system) qs.set('system', system);
+        if (source) qs.set('source', source);
+        const r = await api('/api/industries?' + qs.toString());
+        indCache = r.items || [];
+        renderInd();
+        $('indMsg').className = 'msg ok';
+        $('indMsg').textContent = `共 ${r.total} 条（本页 ${indCache.length}）`;
+      } catch (e) {
+        $('indMsg').className = 'msg err';
+        $('indMsg').textContent = e.message;
+      }
+    };
+    function renderInd() {
+      const q = $('indQ').value.trim().toLowerCase();
+      const rows = indCache.filter((it) => !q || `${it.code} ${it.name}`.toLowerCase().includes(q));
+      $('indBody').innerHTML = rows.map((it) => `<tr>
+        <td>${it.system}</td><td class="mono">${it.code}</td><td>${it.name || ''}</td>
+        <td>${it.level ?? ''}</td><td class="mono">${it.parent_code || '-'}</td><td>${it.source}</td>
+      </tr>`).join('') || '<tr><td colspan="6">无数据</td></tr>';
+    }
+    $('indQ').oninput = renderInd;
+
+    let blkCache = [];
+    $('btnBlk').onclick = async () => {
+      $('blkMsg').textContent = '查询中…';
+      try {
+        const kind = $('blkKind').value;
+        const qs = new URLSearchParams({ page: '1', size: '500' });
+        if (kind) qs.set('kind', kind);
+        const r = await api('/api/blocks?' + qs.toString());
+        blkCache = r.items || [];
+        renderBlk();
+        $('blkMsg').className = 'msg ok';
+        $('blkMsg').textContent = `共 ${r.total} 条`;
+      } catch (e) {
+        $('blkMsg').className = 'msg err';
+        $('blkMsg').textContent = e.message;
+      }
+    };
+    function renderBlk() {
+      const q = $('blkQ').value.trim().toLowerCase();
+      const rows = blkCache.filter((it) => !q || `${it.code} ${it.name}`.toLowerCase().includes(q));
+      $('blkBody').innerHTML = rows.map((it) => `<tr>
+        <td>${it.kind}</td><td class="mono">${it.code}</td><td>${it.name || ''}</td>
+        <td class="mono">${it.index_code || '-'}</td><td>${it.source}</td>
+        <td><button type="button" class="secondary" data-kind="${it.kind}" data-code="${it.code}">成分</button></td>
+      </tr>`).join('') || '<tr><td colspan="6">无数据</td></tr>';
+      $('blkBody').querySelectorAll('button').forEach((b) => {
+        b.onclick = () => loadMembers(b.dataset.kind, b.dataset.code);
+      });
+    }
+    $('blkQ').oninput = renderBlk;
+
+    async function loadMembers(kind, code) {
+      $('memTitle').textContent = `${kind} / ${code}`;
+      try {
+        const r = await api(`/api/blocks/${encodeURIComponent(kind)}/${encodeURIComponent(code)}/members?size=500`);
+        $('memBody').innerHTML = (r.items || []).map((it) =>
+          `<tr><td>${it.market}</td><td class="mono">${it.code}</td><td>${it.source}</td></tr>`
+        ).join('') || '<tr><td colspan="3">无成分</td></tr>';
+      } catch (e) {
+        $('memBody').innerHTML = `<tr><td colspan="3">${e.message}</td></tr>`;
+      }
+    }
+
+    $('symInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('btnSym').click(); });
+    refreshStats().catch(() => {});
+  </script>
+</body>
+</html>

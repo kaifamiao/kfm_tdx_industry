@@ -1,0 +1,10 @@
+{
+  "tushare": {
+    "token": "你的_tushare_token",
+    "http_url": "https://tl.kaixin8.top/tushare/sdk"
+  },
+  "mairui": {
+    "licence": "你的_麦蕊_licence证书",
+    "base_url": "https://api.mairuiapi.com"
+  }
+}

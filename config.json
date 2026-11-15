@@ -1,0 +1,7 @@
+{
+  "host": "0.0.0.0",
+  "port": 13520,
+  "db_path": "data/industry.db",
+  "tdx_files_dir": "data/tdx_files",
+  "tdx_install_hq_cache": "D:\\new_tdx_mock\\T0002\\hq_cache"
+}
