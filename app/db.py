@@ -1,6 +1,7 @@
 """SQLite 连接与建表。"""
 from __future__ import annotations
 
+import shutil
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
@@ -78,6 +79,23 @@ CREATE INDEX IF NOT EXISTS idx_sym_ind_hist_code
 
 def db_path() -> Path:
     return config.path("db_path")
+
+
+def seed_db_path() -> Path:
+    return config.ROOT / "data" / "industry.seed.db"
+
+
+def ensure_seed_db() -> bool:
+    """若运行库不存在且有种子快照，则复制为 industry.db。"""
+    path = db_path()
+    if path.is_file() and path.stat().st_size > 0:
+        return False
+    seed = seed_db_path()
+    if not seed.is_file():
+        return False
+    path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(seed, path)
+    return True
 
 
 def connect() -> sqlite3.Connection:

@@ -17,6 +17,7 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     config.load()
+    db.ensure_seed_db()
     db.init_schema()
     tdx_dir = config.path("tdx_files_dir")
     (tdx_dir / "hq_cache").mkdir(parents=True, exist_ok=True)

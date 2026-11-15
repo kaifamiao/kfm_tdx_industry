@@ -11,6 +11,8 @@ __pycache__/
 # runtime data
 data/industry.db
 data/industry.db-*
+# 开箱快照可入库；运行库 industry.db 仍忽略
+!data/industry.seed.db
 data/cache/
 data/tdx_files/**
 !data/tdx_files/

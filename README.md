@@ -235,7 +235,8 @@ kfm_tdx_industry/
 │   ├── sources/
 │   └── routes/
 └── data/
-    ├── industry.db
+    ├── industry.seed.db        # 入库快照（开箱可用）
+    ├── industry.db             # 运行库（gitignore，缺省时由 seed 复制）
     └── tdx_files/
 ```
 
@@ -356,7 +357,7 @@ A: 检查外网、AKShare 版本、目标站点是否变更。文件轨可离线
 A: 通达信文本多为 **GBK/GB2312**，须按该编码读取。
 
 **Q: 大文件要不要进 Git？**  
-A: 建议 `data/tdx_files/**`、`*.db` 加入 `.gitignore`，用发布包或同步工具分发数据文件。
+A: 运行库 `data/industry.db`、通达信归档 `data/tdx_files/**` 不入库；仓库提供 `data/industry.seed.db` 快照，首次启动会自动复制为运行库。
 
 **Q: 和「上市板块」有什么区别？**  
 A: 主板/创业板/科创板是交易板块；本项目做的是行业与概念分类，语义不同，勿混用字段。
