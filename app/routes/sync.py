@@ -181,9 +181,13 @@ def sync_industry_history():
     except Exception as e:
         _log("sw_hist", False, str(e))
         raise HTTPException(500, f"行业历史同步失败: {e}") from e
+    gap = (stats.get("coverage_gap") or {}).get("summary") or {}
     msg = (
         f"申万行业历史同步完成：{stats.get('hist_rows', 0)} 条"
-        f" / {stats.get('symbols', 0)} 只股票"
+        f" / {stats.get('symbols', 0)} 只"
+        f" / 字典 sw2014={stats.get('dict_sw2014', 0)} sw2021={stats.get('dict_sw2021', 0)}"
+        f" / 未解析名 {stats.get('name_unresolved', 0)}"
+        f" / 覆盖缺口 {gap.get('total', 0)}"
     )
     _log("sw_hist", True, msg, stats)
     return {"ok": True, "message": msg, "stats": stats, "db": db.stats()}

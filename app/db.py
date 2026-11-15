@@ -19,6 +19,23 @@ CREATE TABLE IF NOT EXISTS industry (
     PRIMARY KEY (system, code, source)
 );
 
+-- 版本化行业字典：旧版/新版并存，互不覆盖
+CREATE TABLE IF NOT EXISTS industry_dict (
+    system TEXT NOT NULL,
+    version TEXT NOT NULL,
+    code TEXT NOT NULL,
+    name TEXT,
+    parent_code TEXT,
+    level INTEGER,
+    effective_from TEXT,
+    effective_to TEXT,
+    source TEXT NOT NULL,
+    synced_at TEXT,
+    PRIMARY KEY (system, version, code)
+);
+CREATE INDEX IF NOT EXISTS idx_industry_dict_code
+    ON industry_dict (system, code, version);
+
 CREATE TABLE IF NOT EXISTS symbol_industry (
     market TEXT NOT NULL,
     code TEXT NOT NULL,
@@ -70,6 +87,7 @@ CREATE TABLE IF NOT EXISTS symbol_industry_hist (
     end_date TEXT,
     update_time TEXT,
     synced_at TEXT,
+    taxonomy_version TEXT,
     PRIMARY KEY (market, code, source, system, start_date)
 );
 CREATE INDEX IF NOT EXISTS idx_sym_ind_hist_code
@@ -120,29 +138,48 @@ def session():
         conn.close()
 
 
+def _migrate(conn: sqlite3.Connection):
+    """增量迁移：为已有库补列/表。"""
+    conn.executescript(SCHEMA)
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(symbol_industry_hist)")}
+    if cols and "taxonomy_version" not in cols:
+        conn.execute("ALTER TABLE symbol_industry_hist ADD COLUMN taxonomy_version TEXT")
+    # 列就绪后再建依赖索引
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_sym_ind_hist_ver "
+        "ON symbol_industry_hist (taxonomy_version, industry_code)"
+    )
+
+
 def init_schema():
     with session() as conn:
-        conn.executescript(SCHEMA)
+        _migrate(conn)
 
 
 def stats() -> dict:
     with session() as conn:
         def count(table: str, where: str = "1=1") -> int:
-            return conn.execute(f"SELECT count(*) FROM {table} WHERE {where}").fetchone()[0]
+            try:
+                return conn.execute(f"SELECT count(*) FROM {table} WHERE {where}").fetchone()[0]
+            except Exception:
+                return 0
 
         last = conn.execute(
             "SELECT track, started_at, finished_at, ok, message FROM sync_log ORDER BY id DESC LIMIT 1"
         ).fetchone()
-        hist = 0
-        try:
-            hist = count("symbol_industry_hist")
-        except Exception:
-            hist = 0
+        dict_by_ver = {
+            r["version"]: r["c"]
+            for r in conn.execute(
+                "SELECT version, count(*) c FROM industry_dict WHERE system='sw' GROUP BY version"
+            )
+        }
         return {
             "db_path": str(db_path()),
             "industry": count("industry"),
+            "industry_dict": count("industry_dict"),
+            "industry_dict_by_version": dict_by_ver,
             "symbol_industry": count("symbol_industry"),
-            "symbol_industry_hist": hist,
+            "symbol_industry_hist": count("symbol_industry_hist"),
             "block": count("block"),
             "block_member": count("block_member"),
             "sync_log": count("sync_log"),

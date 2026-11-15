@@ -307,8 +307,13 @@ python run.py
 | `POST` | `/api/sync/all` | 双轨同步 |
 | `GET` | `/api/stats` | 统计 |
 | `GET` | `/api/symbol/{symbol}` | 单股（如 `sz000001` / `600519.SH`） |
-| `GET` | `/api/symbol/{symbol}/industry-history` | 行业归属历史（申万变动段，需先同步） |
-| `POST` | `/api/sync/industry-history` | 同步申万公开 xls → `symbol_industry_hist` |
+| `GET` | `/api/symbol/{symbol}/industry-history` | 行业归属历史（含 taxonomy_version / 日期语义） |
+| `GET` | `/api/industry-dict` | 版本化申万字典（`sw2014` / `sw2021`，互不覆盖） |
+| `GET` | `/api/industry-history/quality` | 历史质量检查（重叠/缺口/字典关联率） |
+| `GET` | `/api/industry-history/coverage` | 缺历史证券分桶（不回填当前行业） |
+| `POST` | `/api/sync/industry-history` | 同步申万历史 + 双版字典 |
+
+**日期语义（回测防未来函数）**：`start_date`/`end_date` = 归属生效区间；`update_time`/`published_at` = 数据源发布可知日；`synced_at` = 系统入库时间（不可作 as-of）。
 | `GET` | `/api/industries` | 行业字典 |
 | `GET` | `/api/blocks` | 板块列表 |
 | `GET` | `/api/blocks/{kind}/{code}/members` | 成分 |
