@@ -12,7 +12,9 @@ __pycache__/
 data/industry.db
 data/industry.db-*
 data/tdx_files/**
+!data/tdx_files/
 !data/tdx_files/.gitkeep
+!data/tdx_files/hq_cache/
 !data/tdx_files/hq_cache/.gitkeep
 
 config.local.json
